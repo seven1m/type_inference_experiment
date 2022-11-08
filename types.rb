@@ -282,14 +282,17 @@ class TypeInferrer
 
       when :send
         name = instruction.arg
-        arg_count = instruction.extra_arg
         meta[:dependencies] << @methods[name]
         stack << meta
 
       when :set_var
         name = instruction.arg
+        if (existing = vars[name])
+          meta[:dependencies] += existing[:dependencies]
+        else
+          vars[name] = meta
+        end
         meta[:dependencies] << stack.pop
-        vars[name] = meta
 
       when :push_var
         name = instruction.arg
@@ -385,6 +388,12 @@ describe 'TypeInferrer' do
       { type: :int, instruction: [:set_var, :x] },
       { type: :int, instruction: [:push_var, :x] }
     ]
+  end
+
+  it 'raises an error if a variable type changes' do
+    expect do
+      infer('x = 10; x = "foo"')
+    end.must_raise TypeError
   end
 
   it 'infers the types of method arguments' do
