@@ -153,9 +153,10 @@ class TypeInferrer
         type: nil
       }
     end
-    @scope = [{ vars: {}, type_stack: [] }]
+    @scope = [{ vars: {}, stack: [] }]
     @methods = {}
     @callers = {}
+    @if_stack = []
   end
 
   def infer
@@ -172,6 +173,8 @@ class TypeInferrer
 
   private
 
+  # NOTE: This could be more efficient by caching the type as it returns
+  # back up the call stack.
   def find_type(meta, seen = Set.new)
     return meta[:type] if meta[:type]
 
@@ -217,46 +220,91 @@ class TypeInferrer
       instruction = meta.fetch(:instruction)
 
       case instruction.first
+
       when :def
         _, name = instruction
-        @scope << { vars: {}, type_stack: [] }
+        @scope << { vars: {}, stack: [] }
         @method = meta
+
       when :end_def
-        @method[:dependencies] << @instructions_meta[index - 1]
+        result = stack.pop
+        @method[:dependencies] << result
         @method = nil
         @scope.pop
         meta[:type] = :nil
+        stack << result
+
       when :push_nil
         meta[:type] = :nil
+        stack << meta
+
       when :push_int
         meta[:type] = :int
+        stack << meta
+
       when :push_str
         meta[:type] = :str
+        stack << meta
+
       when :send
         _, name, _arg_count = instruction
         meta[:dependencies] << @methods[name]
+        stack << meta
+
       when :set_var
         _, name = instruction
-        meta[:dependencies] << @instructions_meta[index - 1]
-        @scope.last[:vars][name] = meta
+        meta[:dependencies] << stack.pop
+        vars[name] = meta
+
       when :push_var
         _, name = instruction
-        meta[:dependencies] << @scope.last[:vars].fetch(name)
+        meta[:dependencies] << vars.fetch(name)
+        stack << meta
+
       when :push_arg
         _, arg_index = instruction
+
+        # first find the :def instruction above this arg
         method_meta = @instructions_meta[..(index - 1)].reverse.detect do |m|
           m[:instruction].first == :def
         end
         raise "Could not find def to go with #{instruction.inspect}" if method_meta.nil?
+
+        # find all the callers of this method and mark them as dependencies for this arg
         @callers[method_meta[:instruction][1]].each do |send_meta|
           meta[:dependencies] << send_meta[:send_args][arg_index]
         end
+
+        stack << meta
+
+      when :if
+        stack.pop # condition can be ignored
+        @if_stack << meta
+
+      when :else
+        meta[:type] = :nil
+        @if_stack.last[:dependencies] << stack.pop
+
+      when :end_if
+        meta[:type] = :nil
+        @if_stack.last[:dependencies] << stack.pop
+        @if_stack.pop
+
       else
         raise "unknown instruction: #{instruction}"
+
       end
 
       index += 1
     end
+  end
+
+  def vars
+    @scope.last.fetch(:vars)
+  end
+
+  def stack
+    @scope.last.fetch(:stack)
   end
 end
 
@@ -326,30 +374,29 @@ describe 'TypeInferrer' do
   end
 
   it 'raises an error if a method arg type changes' do
-    e = expect do
+    expect do
       infer('def foo(x); x; end; foo(10); foo("hi")')
     end.must_raise TypeError
   end
 
-  #it 'infers the return type of an if expression' do
-    #expect(infer('def foo; 1; end; if foo; "foo"; else; "bar"; end')).must_equal [
-      #{ type: :int, instruction: [:def, :foo] },
-      #{ type: :int, instruction: [:push_int, 1] },
-      #{ type: :nil, instruction: [:end_def, :foo] },
-      #{ type: :nil, instruction: [:push_nil] },
-      #{ type: :int, instruction: [:send, :foo, 0] },
-      #{ type: :str, instruction: [:if] },
-      #{ type: :str, instruction: [:push_str, 'foo'] },
-      #{ type: :nil, instruction: [:else] },
-      #{ type: :str, instruction: [:push_str, 'bar'] },
-      #{ type: :nil, instruction: [:end_if] }
-    #]
-  #end
+  it 'infers the return type of an if expression' do
+    expect(infer('def foo; 1; end; if foo; "foo"; else; "bar"; end')).must_equal [
+      { type: :int, instruction: [:def, :foo] },
+      { type: :int, instruction: [:push_int, 1] },
+      { type: :nil, instruction: [:end_def, :foo] },
+      { type: :nil, instruction: [:push_nil] },
+      { type: :int, instruction: [:send, :foo, 0] },
+      { type: :str, instruction: [:if] },
+      { type: :str, instruction: [:push_str, 'foo'] },
+      { type: :nil, instruction: [:else] },
+      { type: :str, instruction: [:push_str, 'bar'] },
+      { type: :nil, instruction: [:end_if] }
+    ]
+  end
 
-  #it 'raises an error if the return type of both branches an if expression do not match' do
-    #e = expect do
-      #infer('def foo; 1; end; if foo; "foo"; else; 10; end')
-    #end.must_raise TypeError
-    #expect(e.message).must_equal 'Both if branches must match! (got: str, int)'
-  #end
+  it 'raises an error if the return type of both branches an if expression do not match' do
+    expect do
+      infer('def foo; 1; end; if foo; "foo"; else; 10; end')
+    end.must_raise TypeError
+  end
 end
