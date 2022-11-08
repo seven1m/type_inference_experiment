@@ -12,6 +12,22 @@ require 'minitest/spec'
 require 'minitest/autorun'
 
 class Compiler
+  class Instruction
+    def initialize(type, node:, arg: nil, extra_arg: nil)
+      @type = type
+      @node = node
+      raise 'bad node' unless @node.is_a?(Sexp)
+      @arg = arg
+      @extra_arg = extra_arg
+    end
+
+    attr_reader :type, :node, :arg, :extra_arg
+
+    def to_a
+      [type, arg, extra_arg].compact
+    end
+  end
+
   def initialize(code)
     @ast = NatalieParser.parse(code)
     @ast = s(:block, @ast) if @ast.sexp_type != :block
@@ -26,43 +42,45 @@ class Compiler
   private
 
   def transform(node)
-    return @out << [:push_nil] if node.nil?
-
     case node.sexp_type
     when :block
       node[1..].each { |n| transform(n) }
     when :call
       _, receiver, op, *args = node
-      transform(receiver)
+      if receiver
+        transform(receiver)
+      else
+        @out << Instruction.new(:push_nil, node: node)
+      end
       args.each { |a| transform(a) }
-      @out << [:send, op, args.size]
+      @out << Instruction.new(:send, node: node, arg: op, extra_arg: args.size)
     when :defn
       _, name, args, *body = node
-      @out << [:def, name]
+      @out << Instruction.new(:def, node: node, arg: name)
       args[1..].each_with_index do |arg, index|
-        @out << [:push_arg, index]
-        @out << [:set_var, arg]
+        @out << Instruction.new(:push_arg, node: args, arg: index)
+        @out << Instruction.new(:set_var, node: args, arg: arg)
       end
       body.each { |n| transform(n) }
-      @out << [:end_def, name]
+      @out << Instruction.new(:end_def, node: node, arg: name)
     when :if
       _, condition, true_body, false_body = node
       transform(condition)
-      @out << [:if]
+      @out << Instruction.new(:if, node: node)
       transform(true_body)
-      @out << [:else]
+      @out << Instruction.new(:else, node: node)
       transform(false_body)
-      @out << [:end_if]
+      @out << Instruction.new(:end_if, node: node)
     when :lasgn
       _, name, value = node
       transform(value)
-      @out << [:set_var, name]
+      @out << Instruction.new(:set_var, node: node, arg: name)
     when :lvar
-      @out << [:push_var, node[1]]
+      @out << Instruction.new(:push_var, node: node, arg: node[1])
     when :lit
-      @out << [:push_int, node[1]]
+      @out << Instruction.new(:push_int, node: node, arg: node[1])
     when :str
-      @out << [:push_str, node[1]]
+      @out << Instruction.new(:push_str, node: node, arg: node[1])
     else
       raise "unknown node: #{node.inspect}"
     end
@@ -70,8 +88,13 @@ class Compiler
 end
 
 describe 'Compiler' do
-  def compile(code)
-    Compiler.new(code).compile
+  def compile(code, native: false)
+    instructions = Compiler.new(code).compile
+    if native
+      instructions
+    else
+      instructions.map(&:to_a)
+    end
   end
 
   it 'compiles literals' do
@@ -144,7 +167,7 @@ describe 'Compiler' do
 end
 
 class TypeInferrer
-  def initialize(instructions)
+  def initialize(instructions, code:)
     @instructions_meta = instructions.each_with_index.map do |instruction, index|
       {
         index: index,
@@ -153,6 +176,7 @@ class TypeInferrer
         type: nil
       }
     end
+    @code = code
     @scope = [{ vars: {}, stack: [] }]
     @methods = {}
     @callers = {}
@@ -185,27 +209,37 @@ class TypeInferrer
     seen << meta
 
     possibles = meta[:dependencies].map do |dependency|
-      find_type(dependency, seen)
-    end.uniq
+      [dependency, find_type(dependency, seen)]
+    end.uniq { |_, t| t }
 
-    case possibles.size
-    when 0
-      nil
-    when 1
-      possibles.first
+    if possibles.size == 1
+      possibles.first[1]
     else
-      raise TypeError, "Could not determine type of #{meta.inspect}; could be one of: #{possibles.inspect}"
+      instruction = meta.fetch(:instruction)
+      node = instruction.node
+      message = "Could not determine type of `#{node.sexp_type}' expression on line #{node.line}\n" \
+                "Could be one of: #{possibles.map(&:last).inspect}\n\n" \
+                "  #{@code.split(/\n/)[node.line - 1]}\n" \
+                "#{' ' * (node.column + 1)}^ here\n\n"
+      possibles.each_with_index do |(dependency, type), index|
+        instruction = dependency.fetch(:instruction)
+        message << "Possibility #{index + 1} (line #{instruction.node.line}):\n\n"
+        message << "  #{@code.split(/\n/)[instruction.node.line - 1]}\n" \
+                   "#{' ' * (instruction.node.column + 1)}^ #{type}\n\n"
+      end
+      raise TypeError, message
     end
   end
 
   def find_methods
     @instructions_meta.each_with_index do |meta, index|
-      case meta[:instruction].first
+      case meta[:instruction].type
       when :def
-        _, name = meta[:instruction]
+        name = meta[:instruction].arg
         @methods[name] = meta
       when :send
-        _, name, arg_count = meta[:instruction]
+        name = meta[:instruction].arg
+        arg_count = meta[:instruction].extra_arg
         meta[:send_args] = (0...arg_count).map { |i| @instructions_meta[index - 1 - i] }.reverse
         (@callers[name] ||= []) << meta
       end
@@ -219,10 +253,10 @@ class TypeInferrer
 
       instruction = meta.fetch(:instruction)
 
-      case instruction.first
+      case instruction.type
 
       when :def
-        _, name = instruction
+        name = instruction.arg
         @scope << { vars: {}, stack: [] }
         @method = meta
 
@@ -247,31 +281,33 @@ class TypeInferrer
         stack << meta
 
       when :send
-        _, name, _arg_count = instruction
+        name = instruction.arg
+        arg_count = instruction.extra_arg
         meta[:dependencies] << @methods[name]
         stack << meta
 
       when :set_var
-        _, name = instruction
+        name = instruction.arg
         meta[:dependencies] << stack.pop
         vars[name] = meta
 
       when :push_var
-        _, name = instruction
+        name = instruction.arg
         meta[:dependencies] << vars.fetch(name)
         stack << meta
 
       when :push_arg
-        _, arg_index = instruction
+        arg_index = instruction.arg
 
         # first find the :def instruction above this arg
         method_meta = @instructions_meta[..(index - 1)].reverse.detect do |m|
-          m[:instruction].first == :def
+          m[:instruction].type == :def
         end
         raise "Could not find def to go with #{instruction.inspect}" if method_meta.nil?
 
         # find all the callers of this method and mark them as dependencies for this arg
-        @callers[method_meta[:instruction][1]].each do |send_meta|
+        method_name = method_meta[:instruction].arg
+        @callers[method_name].each do |send_meta|
           meta[:dependencies] << send_meta[:send_args][arg_index]
         end
 
@@ -311,7 +347,11 @@ end
 describe 'TypeInferrer' do
   def infer(code)
     instructions = Compiler.new(code).compile
-    TypeInferrer.new(instructions).infer
+    TypeInferrer.new(instructions, code: code).infer.map do |meta|
+      meta.update(
+        instruction: meta[:instruction].to_a
+      )
+    end
   end
 
   it 'works' do
@@ -395,8 +435,15 @@ describe 'TypeInferrer' do
   end
 
   it 'raises an error if the return type of both branches an if expression do not match' do
+    code = <<~CODE
+      if 1
+        "foo"
+      else
+        10
+      end
+    CODE
     expect do
-      infer('def foo; 1; end; if foo; "foo"; else; 10; end')
+      infer(code)
     end.must_raise TypeError
   end
 end
