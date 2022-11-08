@@ -1,3 +1,6 @@
+AllCops:
+  TargetRubyVersion: 3.0
+
 Style/SymbolArray:
   Enabled: false
 
@@ -11,4 +14,7 @@ Style/FrozenStringLiteralComment:
   Enabled: false
 
 Style/IfUnlessModifier:
+  Enabled: false
+
+Layout/EmptyLineAfterGuardClause:
   Enabled: false
