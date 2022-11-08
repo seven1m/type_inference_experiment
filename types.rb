@@ -11,6 +11,18 @@ require 'natalie_parser'
 require 'minitest/spec'
 require 'minitest/autorun'
 
+class Object
+  def not_nil!
+    self
+  end
+end
+
+class NilClass
+  def not_nil!
+    raise 'nil!'
+  end
+end
+
 class Compiler
   class Instruction
     def initialize(type, node:, arg: nil, extra_arg: nil)
@@ -261,7 +273,7 @@ class TypeInferrer
         @method = meta
 
       when :end_def
-        result = stack.pop
+        result = stack.pop.not_nil!
         @method[:dependencies] << result
         @method = nil
         @scope.pop
@@ -292,7 +304,7 @@ class TypeInferrer
         else
           vars[name] = meta
         end
-        meta[:dependencies] << stack.pop
+        meta[:dependencies] << stack.pop.not_nil!
 
       when :push_var
         name = instruction.arg
@@ -317,17 +329,17 @@ class TypeInferrer
         stack << meta
 
       when :if
-        stack.pop # condition can be ignored
+        stack.pop.not_nil! # condition can be ignored
         @if_stack << meta
 
       when :else
         meta[:type] = :nil
-        @if_stack.last[:dependencies] << stack.pop
+        @if_stack.last[:dependencies] << stack.pop.not_nil!
 
       when :end_if
         meta[:type] = :nil
-        @if_stack.last[:dependencies] << stack.pop
-        @if_stack.pop
+        @if_stack.last[:dependencies] << stack.pop.not_nil!
+        stack << @if_stack.pop
 
       else
         raise "unknown instruction: #{instruction}"
@@ -429,16 +441,28 @@ describe 'TypeInferrer' do
   end
 
   it 'infers the return type of an if expression' do
-    expect(infer('def foo; 1; end; if foo; "foo"; else; "bar"; end')).must_equal [
-      { type: :int, instruction: [:def, :foo] },
+    code = <<~CODE
+      if 1
+        'foo'
+      else
+        if 2
+          'bar'
+        else
+          'baz'
+        end
+      end
+    CODE
+    expect(infer(code)).must_equal [
       { type: :int, instruction: [:push_int, 1] },
-      { type: :nil, instruction: [:end_def, :foo] },
-      { type: :nil, instruction: [:push_nil] },
-      { type: :int, instruction: [:send, :foo, 0] },
       { type: :str, instruction: [:if] },
       { type: :str, instruction: [:push_str, 'foo'] },
       { type: :nil, instruction: [:else] },
+      { type: :int, instruction: [:push_int, 2] },
+      { type: :str, instruction: [:if] },
       { type: :str, instruction: [:push_str, 'bar'] },
+      { type: :nil, instruction: [:else] },
+      { type: :str, instruction: [:push_str, 'baz'] },
+      { type: :nil, instruction: [:end_if] },
       { type: :nil, instruction: [:end_if] }
     ]
   end
