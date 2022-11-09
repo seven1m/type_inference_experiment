@@ -179,6 +179,15 @@ describe 'Compiler' do
 end
 
 class TypeInferrer
+  BUILT_INS = {
+    int: {
+      '+': :int,
+      '-': :int,
+      '*': :int,
+      '/': :int
+    }
+  }
+
   def initialize(instructions, code:)
     @instructions_meta = instructions.each_with_index.map do |instruction, index|
       {
@@ -274,7 +283,7 @@ class TypeInferrer
 
       when :end_def
         result = stack.pop.not_nil!
-        @method[:dependencies] << result
+        @method[:dependencies] << result.not_nil!
         @method = nil
         @scope.pop
         meta[:type] = :nil
@@ -294,7 +303,13 @@ class TypeInferrer
 
       when :send
         name = instruction.arg
-        meta[:dependencies] << @methods[name]
+        instruction.extra_arg.times { stack.pop } # discard args
+        receiver = stack.pop
+        if receiver[:type] == :nil
+          meta[:dependencies] << @methods.fetch(name)
+        else
+          raise 'todo'
+        end
         stack << meta
 
       when :set_var
@@ -424,6 +439,30 @@ describe 'TypeInferrer' do
     ]
   end
 
+  it 'infers the type of a built-in math operation' do
+    skip
+    expect(infer('1 + 2')).must_equal [
+      { type: :int, instruction: [:push_int, 1] },
+      { type: :int, instruction: [:push_int, 2] },
+      { type: :int, instruction: [:send, :+, 1] }
+    ]
+  end
+
+  it 'infers the type of a built-in math operation where the receiver is not immediately known' do
+    skip
+    expect(infer('def plus(x); x + 1; end; plus(2)')).must_equal [
+      { type: :int, instruction: [:def, :plus] },
+      { type: :int, instruction: [:push_arg, 0] },
+      { type: :int, instruction: [:set_var, :x] },
+      { type: :int, instruction: [:push_int, 1] },
+      { type: :int, instruction: [:send, :+, 1] },
+      { type: :nil, instruction: [:end_def, :plus] },
+      { type: :nil, instruction: [:push_nil] },
+      { type: :int, instruction: [:push_int, 2] },
+      { type: :int, instruction: [:send, :plus, 1] }
+    ]
+  end
+
   it 'infers the return type of a method and a method call' do
     expect(infer('def foo; "hi"; end; foo')).must_equal [
       { type: :str, instruction: [:def, :foo] },
@@ -478,5 +517,81 @@ describe 'TypeInferrer' do
     expect do
       infer(code)
     end.must_raise TypeError
+  end
+end
+
+class VM
+  def initialize(code)
+    @code = code
+    @instructions = Compiler.new(code).compile
+    @instructions_meta = TypeInferrer.new(@instructions, code: code).infer
+    @scope = [{ vars: {}, stack: [] }]
+    @methods = {}
+  end
+
+  def run
+    index = 0
+    while index < @instructions_meta.size
+      meta = @instructions_meta[index]
+      instruction = meta.fetch(:instruction)
+
+      case instruction.type
+      when :push_int
+        stack << instruction.arg
+      when :set_var
+        vars[instruction.arg] = stack.pop
+      when :push_var
+        stack.push(vars[instruction.arg])
+      when :def
+        @methods[instruction.arg] = index + 1
+        until @instructions_meta[index][:instruction].type == :end_def
+          index += 1
+        end
+      when :end_def
+        frame = @scope.pop
+        stack << frame[:stack].pop
+        index = frame[:return]
+      when :push_nil
+        stack << nil
+      when :send
+        @scope << { vars: {}, stack: [], return: index }
+        index = @methods[instruction.arg]
+        next
+      else
+        raise "unknown VM instruction: #{instruction.inspect}"
+      end
+
+      index += 1
+    end
+    stack.last
+  end
+
+  private
+
+  def stack
+    @scope.last.fetch(:stack)
+  end
+
+  def vars
+    @scope.last.fetch(:vars)
+  end
+end
+
+describe 'VM' do
+  def run_vm(code)
+    VM.new(code).run
+  end
+
+  it 'can set and get variables' do
+    expect(run_vm('x = 1; x')).must_equal 1
+  end
+
+  it 'can define and call methods' do
+    skip
+    code = <<~CODE
+      def foo(x); x + 1; end
+      foo(2)
+    CODE
+    expect(run_vm(code)).must_equal 3
   end
 end
