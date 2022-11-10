@@ -287,7 +287,7 @@ class TypeInferrer
     find_methods
     find_dependencies
     @typed_instructions.each(&:type!)
-    @typed_instructions.map(&:to_h)
+    @typed_instructions
   end
 
   def raise_type_error(instruction:, possibles:)
@@ -446,10 +446,11 @@ end
 describe 'TypeInferrer' do
   def infer(code)
     instructions = Compiler.new(code).compile
-    TypeInferrer.new(instructions, code: code).infer.map do |meta|
-      meta.update(
-        instruction: meta[:instruction].to_a
-      )
+    TypeInferrer.new(instructions, code: code).infer.map do |typed_instruction|
+      {
+        type: typed_instruction.type,
+        instruction: typed_instruction.instruction.to_a
+      }
     end
   end
 
@@ -608,8 +609,8 @@ class VM
   def run
     index = 0
     while index < @typed_instructions.size
-      meta = @typed_instructions[index]
-      instruction = meta.fetch(:instruction)
+      typed_instruction = @typed_instructions[index]
+      instruction = typed_instruction.instruction
 
       case instruction.type
       when :push_int
@@ -620,7 +621,7 @@ class VM
         stack.push(vars[instruction.arg])
       when :def
         @methods[instruction.arg] = index + 1
-        index += 1 until @typed_instructions[index][:instruction].type == :end_def
+        index += 1 until @typed_instructions[index].instruction.type == :end_def
       when :end_def
         frame = @scope.pop
         stack << frame[:stack].pop
@@ -649,8 +650,8 @@ class VM
         depth = 0
         unless condition
           index += 1
-          until depth.zero? && @typed_instructions[index][:instruction].type == :else
-            case @typed_instructions[index][:instruction].type
+          until depth.zero? && @typed_instructions[index].instruction.type == :else
+            case @typed_instructions[index].instruction.type
             when :if
               depth += 1
             when :end_if
@@ -662,8 +663,8 @@ class VM
       when :else
         depth = 0
         index += 1
-        until depth.zero? && @typed_instructions[index][:instruction].type == :end_if
-          case @typed_instructions[index][:instruction].type
+        until depth.zero? && @typed_instructions[index].instruction.type == :end_if
+          case @typed_instructions[index].instruction.type
           when :if
             depth += 1
           when :end_if
