@@ -709,8 +709,8 @@ describe 'VM' do
 
   it 'can define and call methods' do
     code = <<~CODE
-      def foo(x); x + 1; end
-      foo(2)
+      def foo(x, y); x + 1; end
+      foo(2, 100)
     CODE
     expect(run_vm(code)).must_equal 3
   end
