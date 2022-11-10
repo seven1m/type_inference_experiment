@@ -1,3 +1,5 @@
+require 'set'
+
 class TypeInferrer
   class TypedInstruction
     def initialize(instruction:, type_inferrer:)
@@ -224,7 +226,7 @@ class TypeInferrer
 
         # find all the callers of this method and mark them as dependencies for this arg
         method_name = method_ti.instruction.arg
-        @callers[method_name].each do |send_ti|
+        (@callers[method_name] || []).each do |send_ti|
           ti.add_dependency(send_ti.send_args[arg_index])
         end
 

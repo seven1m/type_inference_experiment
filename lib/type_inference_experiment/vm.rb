@@ -14,7 +14,7 @@ class VM
       instruction = typed_instruction.instruction
 
       case instruction.type
-      when :push_int
+      when :push_int, :push_str
         stack << instruction.arg
       when :set_var
         vars[instruction.arg] = stack.pop

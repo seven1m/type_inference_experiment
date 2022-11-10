@@ -1,0 +1,12 @@
+#!/usr/bin/env ruby
+
+require_relative '../lib/type_inference_experiment'
+
+args = ARGV
+code = if args.first == '-e'
+         args[1]
+       else
+         File.read(args.first)
+       end
+
+p VM.new(code).run
