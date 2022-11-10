@@ -238,15 +238,21 @@ class TypeInferrer
     else
       instruction = meta.fetch(:instruction)
       node = instruction.node
-      message = "Could not determine type of `#{node.sexp_type}' expression on line #{node.line}\n" \
+      thing = if node.sexp_type == :args
+                "`#{node[1]}' argument"
+              else
+                "`#{node.sexp_type}' expression"
+              end
+      message = "Could not determine type of #{thing} on line #{node.line}\n" \
                 "Could be one of: #{possibles.map(&:last).inspect}\n\n" \
                 "  #{@code.split(/\n/)[node.line - 1]}\n" \
-                "#{' ' * (node.column + 1)}^ here\n\n"
+                "#{' ' * (node.column + 1)}^ expression here\n\n"
       possibles.each_with_index do |(dependency, type), index|
         instruction = dependency.fetch(:instruction)
-        message << "Possibility #{index + 1} (line #{instruction.node.line}):\n\n"
-        message << "  #{@code.split(/\n/)[instruction.node.line - 1]}\n" \
-                   "#{' ' * (instruction.node.column + 1)}^ #{type}\n\n"
+        node = instruction.node
+        message << "Possibility #{index + 1} (line #{node.line}):\n\n"
+        message << "  #{@code.split(/\n/)[node.line - 1]}\n" \
+                   "#{' ' * (node.column + 1)}^ #{type}\n\n"
       end
       raise TypeError, message
     end
@@ -475,7 +481,7 @@ describe 'TypeInferrer' do
 
   it 'raises an error if a method arg type changes' do
     expect do
-      infer('def foo(x); x; end; foo(10); foo("hi")')
+      infer("def foo(x); x; end\n\nfoo(10)\nfoo('hi')")
     end.must_raise TypeError
   end
 
