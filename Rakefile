@@ -3,6 +3,6 @@ task :spec do
 end
 
 task :watch do
-  files = Dir['lib/**/*.rb'].to_a
+  files = Dir['{lib,spec}/**/*.rb'].to_a
   sh "ls #{files.join(' ')} | entr -c -s 'rake spec'"
 end

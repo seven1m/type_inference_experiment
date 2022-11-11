@@ -41,6 +41,11 @@ class Compiler
       end
       args.each { |a| transform(a) }
       @out << Instruction.new(:send, node: node, arg: op, extra_arg: args.size)
+    when :class
+      _, name, _superclass, *body = node
+      @out << Instruction.new(:class, node: node, arg: name)
+      body.each { |n| transform(n) }
+      @out << Instruction.new(:end_class, node: node, arg: name)
     when :defn
       _, name, args, *body = node
       @out << Instruction.new(:def, node: node, arg: name)
