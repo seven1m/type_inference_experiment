@@ -2,7 +2,7 @@ class VM
   def initialize(code)
     @code = code
     @instructions = Compiler.new(code).compile
-    @typed_instructions = TypeInferrer.new(@instructions, code: code).infer
+    @typed_instructions = InferenceEngine.new(@instructions, code: code).infer
     @scope = [{ vars: {}, stack: [] }]
     @methods = {}
   end

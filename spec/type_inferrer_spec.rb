@@ -1,9 +1,9 @@
 require_relative './spec_helper'
 
-describe 'TypeInferrer' do
+describe 'InferenceEngine' do
   def infer(code)
     instructions = Compiler.new(code).compile
-    TypeInferrer.new(instructions, code: code).infer.map do |typed_instruction|
+    InferenceEngine.new(instructions, code: code).infer.map do |typed_instruction|
       {
         type: typed_instruction.type,
         instruction: typed_instruction.instruction.to_a

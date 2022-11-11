@@ -1,10 +1,10 @@
 require 'set'
 
-class TypeInferrer
+class InferenceEngine
   class TypedInstruction
-    def initialize(instruction:, type_inferrer:)
+    def initialize(instruction:, engine:)
       @instruction = instruction
-      @type_inferrer = type_inferrer
+      @engine = engine
       @dependencies = []
     end
 
@@ -35,7 +35,7 @@ class TypeInferrer
         return @type
       end
 
-      @type_inferrer.raise_type_error(
+      @engine.raise_type_error(
         instruction: instruction,
         possibles: possibles
       )
@@ -66,10 +66,10 @@ class TypeInferrer
       }
     }.freeze
 
-    def initialize(receiver:, typed_instruction:, type_inferrer:)
+    def initialize(receiver:, typed_instruction:, engine:)
       @receiver = receiver
       @typed_instruction = typed_instruction
-      @type_inferrer = type_inferrer
+      @engine = engine
     end
 
     def type!(seen = Set.new)
@@ -85,7 +85,7 @@ class TypeInferrer
         return type
       end
 
-      @type_inferrer.raise_type_error(
+      @engine.raise_type_error(
         instruction: @typed_instruction.instruction,
         possibles: []
       )
@@ -95,7 +95,7 @@ class TypeInferrer
   def initialize(instructions, code:)
     @code = code
     @typed_instructions = instructions.map do |instruction|
-      TypedInstruction.new(instruction: instruction, type_inferrer: self)
+      TypedInstruction.new(instruction: instruction, engine: self)
     end
     @scope = [{ vars: {}, stack: [] }]
     @methods = {}
@@ -195,7 +195,7 @@ class TypeInferrer
         if receiver.type == :nil
           ti.add_dependency(@methods.fetch(name))
         else
-          ti.add_dependency(MethodDependency.new(receiver: receiver, typed_instruction: ti, type_inferrer: self))
+          ti.add_dependency(MethodDependency.new(receiver: receiver, typed_instruction: ti, engine: self))
         end
         stack << ti
 
