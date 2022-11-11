@@ -1,5 +1,7 @@
 # Type Inference Experiment
 
+[![Specs](https://github.com/seven1m/type_inference_experiment/actions/workflows/specs.yml/badge.svg)](https://github.com/seven1m/type_inference_experiment/actions/workflows/specs.yml)
+
 I wanted to play around with a language with static types and type inference
 and answer some questions:
 
