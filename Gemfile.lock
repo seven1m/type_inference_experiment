@@ -7,6 +7,7 @@ GEM
     natalie_parser (1.0.0)
 
 PLATFORMS
+  arm64-darwin-22
   x86_64-linux
 
 DEPENDENCIES
