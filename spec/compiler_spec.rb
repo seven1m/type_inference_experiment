@@ -79,12 +79,14 @@ describe 'Compiler' do
   end
 
   it 'compiles classes' do
-    expect(compile('class Foo; def foo; "foo"; end; end')).must_equal [
+    expect(compile('class Foo; def foo; "foo"; end; end; f = Foo')).must_equal [
       [:class, :Foo],
       [:def, :foo],
       [:push_str, 'foo'],
       [:end_def, :foo],
-      [:end_class, :Foo]
+      [:end_class, :Foo],
+      [:push_const, :Foo],
+      [:set_var, :f]
     ]
   end
 end

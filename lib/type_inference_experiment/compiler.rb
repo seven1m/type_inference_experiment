@@ -13,6 +13,14 @@ class Compiler
     def to_a
       [type, arg, extra_arg].compact
     end
+
+    def inspect
+      "#<Compiler::Instruction type=#{type.inspect} arg=#{arg.inspect} extra_arg=#{extra_arg.inspect}>"
+    end
+
+    def to_s
+      inspect
+    end
   end
 
   def initialize(code)
@@ -46,6 +54,8 @@ class Compiler
       @out << Instruction.new(:class, node: node, arg: name)
       body.each { |n| transform(n) }
       @out << Instruction.new(:end_class, node: node, arg: name)
+    when :const
+      @out << Instruction.new(:push_const, node: node, arg: node[1])
     when :defn
       _, name, args, *body = node
       @out << Instruction.new(:def, node: node, arg: name)

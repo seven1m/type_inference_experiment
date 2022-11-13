@@ -99,12 +99,13 @@ class InferenceEngine
     end
     @scope = [{ vars: {}, stack: [] }]
     @methods = {}
+    @constants = {}
     @callers = {}
     @if_stack = []
   end
 
   def infer
-    find_methods
+    find_classes_and_methods
     find_dependencies
     @typed_instructions.each(&:type!)
     @typed_instructions
@@ -139,12 +140,21 @@ class InferenceEngine
 
   private
 
-  def find_methods
+  def find_classes_and_methods
+    klass = :nil
     @typed_instructions.each_with_index do |ti, index|
       case ti.instruction.type
+      when :class
+        raise TypeError, 'cannot nest classes' if klass != :nil
+        name = ti.instruction.arg
+        @constants[name] = ti
+        klass = name
+      when :end_class
+        klass = :nil
       when :def
         name = ti.instruction.arg
-        @methods[name] = ti
+        @methods[klass] ||= {}
+        @methods[klass][name] = ti
       when :send
         name = ti.instruction.arg
         arg_count = ti.instruction.extra_arg
@@ -162,6 +172,15 @@ class InferenceEngine
       instruction = ti.instruction
 
       case instruction.type
+
+      when :class
+        name = instruction.arg
+        @class = ti
+        ti.type = :Class
+
+      when :end_class
+        @class = nil
+        ti.type = :nil
 
       when :def
         name = instruction.arg
@@ -192,8 +211,15 @@ class InferenceEngine
         name = instruction.arg
         instruction.extra_arg.times { stack.pop } # discard args
         receiver = stack.pop
-        if receiver.type == :nil
-          ti.add_dependency(@methods.fetch(name))
+        if (method = @methods.dig(receiver.type, name))
+          ti.add_dependency(method)
+        elsif name == :new
+          case receiver.type!
+          when :Class
+            ti.type = receiver.instruction.arg
+          else
+            raise "unkown constant type: #{receiver.type}"
+          end
         else
           ti.add_dependency(MethodDependency.new(receiver: receiver, typed_instruction: ti, engine: self))
         end
@@ -209,6 +235,11 @@ class InferenceEngine
           vars[name] = ti
         end
         ti.add_dependency(stack.pop.not_nil!)
+
+      when :push_const
+        name = instruction.arg
+        ti.add_dependency(@constants.fetch(name))
+        stack << ti
 
       when :push_var
         name = instruction.arg

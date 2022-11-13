@@ -11,7 +11,7 @@ describe 'InferenceEngine' do
     end
   end
 
-  it 'works' do
+  it 'works whith a chain of methods' do
     code = <<-CODE
       def bar; foo; end
       def baz; bar; end
@@ -151,5 +151,27 @@ describe 'InferenceEngine' do
     expect do
       infer(code)
     end.must_raise TypeError
+  end
+
+  it 'recognizes classes and instances of classes' do
+    code = <<~CODE
+      class Foo
+        def foo
+          'foo'
+        end
+      end
+      f = Foo.new.foo
+    CODE
+    expect(infer(code)).must_equal [
+      { type: :Class, instruction: [:class, :Foo] },
+      { type: :str, instruction: [:def, :foo] },
+      { type: :str, instruction: [:push_str, 'foo'] },
+      { type: :nil, instruction: [:end_def, :foo] },
+      { type: :nil, instruction: [:end_class, :Foo] },
+      { type: :Class, instruction: [:push_const, :Foo] },
+      { type: :Foo, instruction: [:send, :new, 0] },
+      { type: :str, instruction: [:send, :foo, 0] },
+      { type: :str, instruction: [:set_var, :f] }
+    ]
   end
 end
