@@ -1,45 +1,113 @@
 require 'set'
 
+# unification algorithm ported from https://eli.thegreenplace.net/2018/unification/
+
+class Term
+end
+
+class App < Term
+  def initialize(fname, args = [])
+    super()
+    @fname = fname
+    @args = args
+  end
+
+  attr_reader :fname, :args
+
+  def ==(other)
+    other.is_a?(App) && other.fname == @fname && other.args == @args
+  end
+end
+
+class Var < Term
+  def initialize(name)
+    super()
+    @name = name
+  end
+
+  attr_reader :name
+
+  def ==(other)
+    other.is_a?(Var) && other.name == @name
+  end
+end
+
+class Const < Term
+  def initialize(value)
+    super()
+    @value = value
+  end
+
+  attr_reader :value
+
+  def ==(other)
+    other.is_a?(Const) && other.value == @value
+  end
+end
+
+def unify(x, y, subst = {})
+  return if subst.nil?
+
+  if x == y
+    subst
+  elsif x.is_a?(Var)
+    unify_variable(x, y, subst)
+  elsif y.is_a?(Var)
+    unify_variable(y, x, subst)
+  elsif x.is_a?(App) && y.is_a?(App)
+    return if x.fname != y.fname || x.args.size != y.args.size
+
+    x.args.each_with_index do |arg, i|
+      subst = unify(arg, y.args[i], subst)
+    end
+
+    subst
+  else
+    nil
+  end
+end
+
+def unify_variable(v, x, subst)
+  raise 'bad variable' unless v.is_a?(Var)
+
+  if subst[v.name]
+    unify(subst[v.name], x, subst)
+  elsif x.is_a?(Var) && subst[x.name]
+    unify(v, subst[x.name], subst)
+  elsif occurs_check(v, x, subst)
+    nil
+  else
+    # v is not yet in subst and can't simplify x. Extend subst.
+    subst.update(v.name => x)
+  end
+end
+
+def occurs_check(v, term, subst)
+  raise 'bad variable' unless v.is_a?(Var)
+
+  if v == term
+    true
+  elsif term.is_a?(Var) && subst[term.name]
+    occurs_check(v, subst[term.name], subst)
+  elsif term.is_a?(App)
+    term.args.any? do |arg|
+      occurs_check(v, arg, subst)
+    end
+  else
+    false
+  end
+end
+
 class InferenceEngine
   class TypedInstruction
     def initialize(instruction:, engine:)
       @instruction = instruction
       @engine = engine
-      @dependencies = []
     end
 
-    attr_reader :instruction, :dependencies
+    attr_reader :instruction
 
-    attr_accessor :type, :send_args
-
-    def add_dependency(dependency)
-      dependencies << dependency
-    end
-
-    def type!(seen = Set.new)
-      return @type if @type
-
-      if seen.include?(self)
-        raise TypeError, "Could not determine type of #{inspect}"
-      end
-      seen << self
-
-      possibles = dependencies.map do |dependency|
-        [dependency, dependency.type!(seen)]
-      end
-
-      possibles.uniq! { |_, t| t }
-
-      if possibles.size == 1
-        @type = possibles.first[1]
-        return @type
-      end
-
-      @engine.raise_type_error(
-        instruction: instruction,
-        possibles: possibles
-      )
-    end
+    attr_accessor :type
 
     def to_h
       {
@@ -50,45 +118,6 @@ class InferenceEngine
 
     def inspect
       "#TypedInstruction<#{to_h}>"
-    end
-  end
-
-  class MethodDependency
-    BUILT_INS = {
-      int: {
-        '+': :int,
-        '-': :int,
-        '*': :int,
-        '/': :int
-      },
-      str: {
-        '+': :str
-      }
-    }.freeze
-
-    def initialize(receiver:, typed_instruction:, engine:)
-      @receiver = receiver
-      @typed_instruction = typed_instruction
-      @engine = engine
-    end
-
-    def type!(seen = Set.new)
-      receiver_type = @receiver.type!
-
-      if seen.include?(self)
-        raise TypeError, "Could not determine type of #{inspect}"
-      end
-      seen << self
-
-      if (type = BUILT_INS.dig(receiver_type, @typed_instruction.instruction.arg))
-        @typed_instruction.type = type
-        return type
-      end
-
-      @engine.raise_type_error(
-        instruction: @typed_instruction.instruction,
-        possibles: []
-      )
     end
   end
 
@@ -105,8 +134,8 @@ class InferenceEngine
   end
 
   def infer
-    find_classes_and_methods
-    find_dependencies
+    build_type_variables
+    build_substitution
     @typed_instructions.each(&:type!)
     @typed_instructions
   end
@@ -140,156 +169,11 @@ class InferenceEngine
 
   private
 
-  def find_classes_and_methods
-    klass = :nil
-    @typed_instructions.each_with_index do |ti, index|
-      case ti.instruction.type
-      when :class
-        raise TypeError, 'cannot nest classes' if klass != :nil
-        name = ti.instruction.arg
-        @constants[name] = ti
-        klass = name
-      when :end_class
-        klass = :nil
-      when :def
-        name = ti.instruction.arg
-        @methods[klass] ||= {}
-        @methods[klass][name] = ti
-      when :send
-        name = ti.instruction.arg
-        arg_count = ti.instruction.extra_arg
-        ti.send_args = (0...arg_count).map { |i| @typed_instructions[index - 1 - i] }.reverse
-        (@callers[name] ||= []) << ti
-      end
+  def build_type_variables
+    @typed_instructions.each do |instruction|
     end
   end
 
-  def find_dependencies
-    index = 0
-    while index < @typed_instructions.size
-      ti = @typed_instructions[index]
-
-      instruction = ti.instruction
-
-      case instruction.type
-
-      when :class
-        name = instruction.arg
-        @class = ti
-        ti.type = :Class
-
-      when :end_class
-        @class = nil
-        ti.type = :nil
-
-      when :def
-        name = instruction.arg
-        @scope << { vars: {}, stack: [] }
-        @method = ti
-
-      when :end_def
-        result = stack.pop.not_nil!
-        @method.add_dependency(result.not_nil!)
-        @method = nil
-        @scope.pop
-        ti.type = :nil
-        stack << result
-
-      when :push_nil
-        ti.type = :nil
-        stack << ti
-
-      when :push_int
-        ti.type = :int
-        stack << ti
-
-      when :push_str
-        ti.type = :str
-        stack << ti
-
-      when :send
-        name = instruction.arg
-        instruction.extra_arg.times { stack.pop } # discard args
-        receiver = stack.pop
-        if (method = @methods.dig(receiver.type, name))
-          ti.add_dependency(method)
-        elsif name == :new
-          case receiver.type!
-          when :Class
-            ti.type = receiver.instruction.arg
-          else
-            raise "unkown constant type: #{receiver.type}"
-          end
-        else
-          ti.add_dependency(MethodDependency.new(receiver: receiver, typed_instruction: ti, engine: self))
-        end
-        stack << ti
-
-      when :set_var
-        name = instruction.arg
-        if (existing = vars[name])
-          existing.dependencies.each do |dependency|
-            ti.add_dependency(dependency)
-          end
-        else
-          vars[name] = ti
-        end
-        ti.add_dependency(stack.pop.not_nil!)
-
-      when :push_const
-        name = instruction.arg
-        ti.add_dependency(@constants.fetch(name))
-        stack << ti
-
-      when :push_var
-        name = instruction.arg
-        ti.add_dependency(vars.fetch(name))
-        stack << ti
-
-      when :push_arg
-        arg_index = instruction.arg
-
-        # first find the :def instruction above this arg
-        method_ti = @typed_instructions[..(index - 1)].reverse.detect do |m|
-          m.instruction.type == :def
-        end
-        raise "Could not find def to go with #{instruction.inspect}" if method_ti.nil?
-
-        # find all the callers of this method and mark them as dependencies for this arg
-        method_name = method_ti.instruction.arg
-        (@callers[method_name] || []).each do |send_ti|
-          ti.add_dependency(send_ti.send_args[arg_index])
-        end
-
-        stack << ti
-
-      when :if
-        stack.pop.not_nil! # condition can be ignored
-        @if_stack << ti
-
-      when :else
-        ti.type = :nil
-        @if_stack.last.add_dependency(stack.pop.not_nil!)
-
-      when :end_if
-        ti.type = :nil
-        @if_stack.last.add_dependency(stack.pop.not_nil!)
-        stack << @if_stack.pop
-
-      else
-        raise "unknown instruction: #{instruction}"
-
-      end
-
-      index += 1
-    end
-  end
-
-  def vars
-    @scope.last.fetch(:vars)
-  end
-
-  def stack
-    @scope.last.fetch(:stack)
+  def build_substitution
   end
 end
