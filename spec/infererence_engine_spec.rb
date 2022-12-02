@@ -11,43 +11,6 @@ describe 'InferenceEngine' do
     end
   end
 
-  focus
-  it 'can unify stuff' do
-    expect(
-      unify(
-        App.new(:f, [Const.new(:a), Const.new(:b), App.new(:bar, [Const.new(:t)])]),
-        App.new(:f, [Const.new(:a), Var.new(:V), Var.new(:X)])
-      )
-    ).must_equal(
-      V: Const.new(:b),
-      X: App.new(:bar, [Const.new(:t)])
-    )
-    expect(
-      unify(
-        App.new(:f, [Const.new(:a), Var.new(:V), App.new(:bar, [Var.new(:D)])]),
-        App.new(:f, [Var.new(:D), Const.new(:k), App.new(:bar, [Const.new(:a)])])
-      )
-    ).must_equal(
-      D: Const.new(:a),
-      V: Const.new(:k)
-    )
-    expect(
-      unify(
-        App.new(:f, [Var.new(:X), Var.new(:Y)]),
-        App.new(:f, [Var.new(:Z), App.new(:g, [Var.new(:X)])])
-      )
-    ).must_equal(
-      X: Var.new(:Z),
-      Y: App.new(:g, [Var.new(:X)])
-    )
-    expect(
-      unify(
-        App.new(:f, [Var.new(:X), Var.new(:Y), Var.new(:X)]),
-        App.new(:f, [Const.new(:r), App.new(:g, [Var.new(:X)]), Const.new(:p)])
-      )
-    ).must_be_nil
-  end
-
   it 'works whith a chain of methods' do
     code = <<-CODE
       def bar; foo; end
