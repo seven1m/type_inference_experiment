@@ -195,4 +195,66 @@ describe 'InferenceEngine' do
       { type: :int, instruction: [:set_var, :b] }
     ]
   end
+
+  it 'recognizes array types' do
+    code = <<~CODE
+      a = [1, 2, 3]
+    CODE
+    expect(infer(code)).must_equal [
+      { type: :int, instruction: [:push_int, 1] },
+      { type: :int, instruction: [:push_int, 2] },
+      { type: :int, instruction: [:push_int, 3] },
+      { type: :'[int]', instruction: [:push_array, 3] },
+      { type: :'[int]', instruction: [:set_var, :a] }
+    ]
+  end
+
+  it 'can specify type in comment' do
+    code = <<~CODE
+      a = [] # [int]
+    CODE
+    expect(infer(code)).must_equal [
+      { type: :'[int]', instruction: [:push_array, 0] },
+      { type: :'[int]', instruction: [:set_var, :a] }
+    ]
+  end
+
+  it 'raises an error if the array type is unknown' do
+    expect do
+      infer('a = []')
+    end.must_raise TypeError
+  end
+
+  it 'knows the type of array append operation' do
+    code = <<~CODE
+      a = [1]
+      a << 2
+      b = ['foo']
+      b << 'bar'
+    CODE
+    expect(infer(code)).must_equal [
+      { type: :int, instruction: [:push_int, 1] },
+      { type: :'[int]', instruction: [:push_array, 1] },
+      { type: :'[int]', instruction: [:set_var, :a] },
+      { type: :'[int]', instruction: [:push_var, :a] },
+      { type: :int, instruction: [:push_int, 2] },
+      { type: :'[int]', instruction: [:send, :<<, 1] },
+      { type: :str, instruction: [:push_str, 'foo'] },
+      { type: :'[str]', instruction: [:push_array, 1] },
+      { type: :'[str]', instruction: [:set_var, :b] },
+      { type: :'[str]', instruction: [:push_var, :b] },
+      { type: :str, instruction: [:push_str, 'bar'] },
+      { type: :'[str]', instruction: [:send, :<<, 1] }
+    ]
+  end
+
+  it 'raises an error if an array value type changes' do
+    code = <<~CODE
+      a = [1]
+      a << 'foo' 
+    CODE
+    expect do
+      infer(code)
+    end.must_raise TypeError
+  end
 end

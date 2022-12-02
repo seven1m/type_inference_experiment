@@ -1,6 +1,13 @@
 require 'set'
 
 class InferenceEngine
+  TYPES = %i[
+    int
+    str
+    [int]
+    [str]
+  ]
+
   class TypedInstruction
     def initialize(instruction:, engine:)
       @instruction = instruction
@@ -53,7 +60,7 @@ class InferenceEngine
     end
   end
 
-  class BuiltInOperatorMethod
+  class BuiltInOperatorMethodInstruction
     BUILT_INS = {
       # klass
       #      arg , return
@@ -65,6 +72,12 @@ class InferenceEngine
       },
       str: {
         '+': [:str, :str]
+      },
+      '[int]': {
+        '<<': [:int, :'[int]']
+      },
+      '[str]': {
+        '<<': [:str, :'[str]']
       }
     }.freeze
 
@@ -104,6 +117,30 @@ class InferenceEngine
     end
   end
 
+  class ArrayInstruction
+    def initialize(typed_instruction:, values:, engine:)
+      @typed_instruction = typed_instruction
+      @values = values
+      @engine = engine
+    end
+
+    def type!(seen = Set.new)
+      if seen.include?(self)
+        raise TypeError, "Could not determine type of #{inspect}"
+      end
+      seen << self
+
+      if @values.any?
+        return "[#{@values.first.type!}]".to_sym
+      end
+
+      @engine.raise_unknown_type_error(
+        instruction: @typed_instruction.instruction,
+        possibles: []
+      )
+    end
+  end
+
   def initialize(instructions, code:)
     @code = code
     @typed_instructions = instructions.map do |instruction|
@@ -118,6 +155,7 @@ class InferenceEngine
 
   def infer
     find_classes_and_methods
+    find_annotations
     find_dependencies
     @typed_instructions.each(&:type!)
     @typed_instructions
@@ -186,6 +224,20 @@ class InferenceEngine
     end
   end
 
+  def find_annotations
+    lines = @code.split(/\n/)
+    @typed_instructions.each do |ti|
+      # FIXME: need comments from parse tree rather than to use a regexp
+      comment = lines[ti.instruction.node.line - 1].strip.split(/#\s*/)[1]
+      if comment
+        type = comment.to_sym
+        if TYPES.include?(comment.to_sym)
+          ti.type = comment.to_sym
+        end
+      end
+    end
+  end
+
   def find_dependencies
     index = 0
     while index < @typed_instructions.size
@@ -243,7 +295,7 @@ class InferenceEngine
             raise "unknown constant type: #{receiver.type}"
           end
         else
-          ti.add_dependency(BuiltInOperatorMethod.new(receiver: receiver, typed_instruction: ti, args: args, engine: self))
+          ti.add_dependency(BuiltInOperatorMethodInstruction.new(receiver: receiver, typed_instruction: ti, args: args, engine: self))
         end
         stack << ti
 
@@ -297,6 +349,11 @@ class InferenceEngine
         ti.type = :nil
         @if_stack.last.add_dependency(stack.pop.not_nil!)
         stack << @if_stack.pop
+
+      when :push_array
+        values = stack.pop(instruction.arg)
+        ti.add_dependency(ArrayInstruction.new(typed_instruction: ti, values: values, engine: self))
+        stack << ti
 
       else
         raise "unknown instruction: #{instruction}"

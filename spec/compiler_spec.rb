@@ -89,4 +89,14 @@ describe 'Compiler' do
       [:set_var, :f]
     ]
   end
+
+  it 'compiles arrays' do
+    expect(compile('a = [1, 2, 3]')).must_equal [
+      [:push_int, 1],
+      [:push_int, 2],
+      [:push_int, 3],
+      [:push_array, 3],
+      [:set_var, :a],
+    ]
+  end
 end

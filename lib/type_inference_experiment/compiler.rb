@@ -85,6 +85,12 @@ class Compiler
       @out << Instruction.new(:push_str, node: node, arg: node[1])
     when :nil
       @out << Instruction.new(:push_nil, node: node)
+    when :array
+      _, *values = node
+      values.each do |value|
+        transform(value)
+      end
+      @out << Instruction.new(:push_array, node: node, arg: values.size)
     else
       raise "unknown node: #{node.inspect}"
     end
