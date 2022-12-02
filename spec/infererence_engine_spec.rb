@@ -82,6 +82,12 @@ describe 'InferenceEngine' do
     ]
   end
 
+  it 'raises an error for mismatched types to a built-in string operation' do
+    expect do
+      infer('"foo" + 2')
+    end.must_raise(TypeError)
+  end
+
   it 'infers the type of a built-in math operation where the receiver is not immediately known' do
     expect(infer('def plus(x); x + 1; end; plus(2)')).must_equal [
       { type: :int, instruction: [:def, :plus] },
@@ -160,7 +166,13 @@ describe 'InferenceEngine' do
           'foo'
         end
       end
+      class Bar
+        def foo
+          2
+        end
+      end
       f = Foo.new.foo
+      b = Bar.new.foo
     CODE
     expect(infer(code)).must_equal [
       { type: :Class, instruction: [:class, :Foo] },
@@ -168,10 +180,19 @@ describe 'InferenceEngine' do
       { type: :str, instruction: [:push_str, 'foo'] },
       { type: :nil, instruction: [:end_def, :foo] },
       { type: :nil, instruction: [:end_class, :Foo] },
+      { type: :Class, instruction: [:class, :Bar] },
+      { type: :int, instruction: [:def, :foo] },
+      { type: :int, instruction: [:push_int, 2] },
+      { type: :nil, instruction: [:end_def, :foo] },
+      { type: :nil, instruction: [:end_class, :Bar] },
       { type: :Class, instruction: [:push_const, :Foo] },
       { type: :Foo, instruction: [:send, :new, 0] },
       { type: :str, instruction: [:send, :foo, 0] },
-      { type: :str, instruction: [:set_var, :f] }
+      { type: :str, instruction: [:set_var, :f] },
+      { type: :Class, instruction: [:push_const, :Bar] },
+      { type: :Bar, instruction: [:send, :new, 0] },
+      { type: :int, instruction: [:send, :foo, 0] },
+      { type: :int, instruction: [:set_var, :b] }
     ]
   end
 end

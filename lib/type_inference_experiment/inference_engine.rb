@@ -35,7 +35,7 @@ class InferenceEngine
         return @type
       end
 
-      @engine.raise_type_error(
+      @engine.raise_unknown_type_error(
         instruction: instruction,
         possibles: possibles
       )
@@ -53,22 +53,25 @@ class InferenceEngine
     end
   end
 
-  class MethodDependency
+  class BuiltInOperatorMethod
     BUILT_INS = {
+      # klass
+      #      arg , return
       int: {
-        '+': :int,
-        '-': :int,
-        '*': :int,
-        '/': :int
+        '+': [:int, :int],
+        '-': [:int, :int],
+        '*': [:int, :int],
+        '/': [:int, :int]
       },
       str: {
-        '+': :str
+        '+': [:str, :str]
       }
     }.freeze
 
-    def initialize(receiver:, typed_instruction:, engine:)
+    def initialize(receiver:, typed_instruction:, args:, engine:)
       @receiver = receiver
       @typed_instruction = typed_instruction
+      @args = args
       @engine = engine
     end
 
@@ -80,12 +83,21 @@ class InferenceEngine
       end
       seen << self
 
-      if (type = BUILT_INS.dig(receiver_type, @typed_instruction.instruction.arg))
-        @typed_instruction.type = type
-        return type
+      if (klass = BUILT_INS[receiver_type])
+        if (arg_type, return_type = klass[@typed_instruction.instruction.arg])
+          if @args.size != 1 || (@args.first.type && @args.first.type != arg_type)
+            @engine.raise_mismatched_type_error(
+              instruction: @args.first.instruction,
+              expected: arg_type,
+              got: @args.first.type
+            )
+          end
+          @typed_instruction.type = return_type
+          return return_type
+        end
       end
 
-      @engine.raise_type_error(
+      @engine.raise_unknown_type_error(
         instruction: @typed_instruction.instruction,
         possibles: []
       )
@@ -111,7 +123,7 @@ class InferenceEngine
     @typed_instructions
   end
 
-  def raise_type_error(instruction:, possibles:)
+  def raise_unknown_type_error(instruction:, possibles:)
     node = instruction.node
     thing = if node.sexp_type == :args
               "`#{node[1]}' argument"
@@ -134,6 +146,16 @@ class InferenceEngine
       message << "  #{@code.split(/\n/)[node.line - 1]}\n" \
                  "#{' ' * (node.column + 1)}^ #{type}\n\n"
     end
+
+    raise TypeError, message
+  end
+
+  def raise_mismatched_type_error(instruction:, expected:, got:)
+    node = instruction.node
+    message = "Expected #{expected} but got #{got}:\n\n"
+
+    message << "  #{@code.split(/\n/)[node.line - 1]}\n"
+    message << "#{' ' * (node.column + 1)}^ wrong type here\n\n"
 
     raise TypeError, message
   end
@@ -209,7 +231,7 @@ class InferenceEngine
 
       when :send
         name = instruction.arg
-        instruction.extra_arg.times { stack.pop } # discard args
+        args = stack.pop(instruction.extra_arg)
         receiver = stack.pop
         if (method = @methods.dig(receiver.type, name))
           ti.add_dependency(method)
@@ -218,10 +240,10 @@ class InferenceEngine
           when :Class
             ti.type = receiver.instruction.arg
           else
-            raise "unkown constant type: #{receiver.type}"
+            raise "unknown constant type: #{receiver.type}"
           end
         else
-          ti.add_dependency(MethodDependency.new(receiver: receiver, typed_instruction: ti, engine: self))
+          ti.add_dependency(BuiltInOperatorMethod.new(receiver: receiver, typed_instruction: ti, args: args, engine: self))
         end
         stack << ti
 
