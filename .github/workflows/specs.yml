@@ -14,6 +14,6 @@ jobs:
       - name: checkout submodules
         run: git submodule update --init --recursive
       - name: install dependencies
-        run: sudo apt-get install ruby ruby-dev && sudo gem install bundler && bundle install
+        run: sudo apt-get install ruby ruby-dev && sudo gem install bundler && bundle config set --local deployment 'true' && bundle install
       - name: run specs
-        run: rake spec
+        run: bundle exec rake spec

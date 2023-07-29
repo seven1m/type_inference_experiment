@@ -5,6 +5,7 @@ GEM
     minitest-focus (1.4.0)
       minitest (>= 4, < 6)
     natalie_parser (2.3.0)
+    rake (13.0.6)
 
 PLATFORMS
   arm64-darwin-22
@@ -14,6 +15,7 @@ DEPENDENCIES
   minitest
   minitest-focus
   natalie_parser
+  rake
 
 BUNDLED WITH
    2.2.33
