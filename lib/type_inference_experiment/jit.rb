@@ -14,8 +14,8 @@ class JIT
   end
 
   def run
-    LLVM.init_jit
-    @module.functions.add('main', [], LLVM::Int) do |main|
+    return_type = to_llvm_type(@typed_instructions.last.type)
+    @module.functions.add('main', [], return_type) do |main|
       entry = main.basic_blocks.append('entry')
       entry.build do |builder|
         index = 0
@@ -26,12 +26,22 @@ class JIT
           case instruction.type
           when :push_int
             stack << LLVM.Int(instruction.arg)
+          when :push_str
+            stack << LLVM::ConstantArray.string(instruction.arg)
           when :set_var
-            var = vars[instruction.arg] = builder.alloca(LLVM::Int32)
-            builder.store(stack.pop, var)
+            val = stack.pop
+            var = vars[instruction.arg] = builder.alloca(val.type)
+            builder.store(val, var)
           when :push_var
             var = vars[instruction.arg]
-            builder.ret(builder.load(var))
+            val = builder.load(var)
+            if typed_instruction.type == :str
+              zero = LLVM.Int(0)
+              cast = builder.gep(val, [zero, zero])
+              builder.ret(cast)
+            else
+              builder.ret(val)
+            end
           else
             raise "unknown JIT instruction: #{instruction.inspect}"
           end
@@ -40,6 +50,7 @@ class JIT
         end
       end
     end
+    LLVM.init_jit
     @module.verify
     # @module.dump # debug IR
     engine = LLVM::JITCompiler.new(@module)
@@ -58,5 +69,16 @@ class JIT
 
   def args
     @scope.last.fetch(:args)
+  end
+
+  def to_llvm_type(type)
+    case type
+    when :str
+      LLVM::Type.pointer(LLVM::UInt8)
+    when :int
+      LLVM::Int
+    else
+      raise "unknown type: #{type}"
+    end
   end
 end
