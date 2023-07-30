@@ -13,7 +13,7 @@ jobs:
       - uses: actions/checkout@v1
       - name: checkout submodules
         run: git submodule update --init --recursive
-      - name: install dependencies
-        run: sudo apt-get install ruby ruby-dev && sudo gem install bundler && bundle config set --local deployment 'true' && bundle install
+      - name: build docker image
+        run: docker build . -t tie
       - name: run specs
-        run: bundle exec rake spec
+        run: docker run tie bundle exec rake spec

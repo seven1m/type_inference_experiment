@@ -12,6 +12,7 @@ GEM
       rake (>= 12, < 14)
 
 PLATFORMS
+  aarch64-linux
   arm64-darwin-22
   x86_64-linux
 
