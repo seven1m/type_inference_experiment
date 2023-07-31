@@ -14,8 +14,8 @@ class JIT
   end
 
   def run
-    return_type = to_llvm_type(@typed_instructions.last.type)
-    @module.functions.add('main', [], return_type) do |main|
+    return_type = @typed_instructions.last.type
+    @module.functions.add('main', [], to_llvm_type(return_type)) do |main|
       entry = main.basic_blocks.append('entry')
       entry.build do |builder|
         index = 0
@@ -27,7 +27,10 @@ class JIT
           when :push_int
             stack << LLVM.Int(instruction.arg)
           when :push_str
-            stack << LLVM::ConstantArray.string(instruction.arg)
+            val = LLVM::ConstantArray.string(instruction.arg)
+            var = builder.alloca(val.type)
+            builder.store(val, var)
+            stack << builder.load(var)
           when :set_var
             val = stack.pop
             var = vars[instruction.arg] = builder.alloca(val.type)
@@ -35,18 +38,20 @@ class JIT
           when :push_var
             var = vars[instruction.arg]
             val = builder.load(var)
-            if typed_instruction.type == :str
-              zero = LLVM.Int(0)
-              cast = builder.gep(val, [zero, zero])
-              builder.ret(cast)
-            else
-              builder.ret(val)
-            end
+            stack << val
           else
             raise "unknown JIT instruction: #{instruction.inspect}"
           end
 
           index += 1
+        end
+
+        return_val = stack.pop
+        if return_type == :str
+          zero = LLVM.Int(0)
+          builder.ret(builder.gep(return_val, [zero, zero]))
+        else
+          builder.ret(return_val)
         end
       end
     end
@@ -54,7 +59,16 @@ class JIT
     @module.verify
     # @module.dump # debug IR
     engine = LLVM::JITCompiler.new(@module)
-    engine.run_function(@module.functions['main'])
+    result = engine.run_function(@module.functions['main'])
+    engine.dispose
+    case return_type
+    when :str
+      result.to_ptr.read_string
+    when :int
+      result.to_i
+    else
+      raise "unknown return type: #{return_type}"
+    end
   end
 
   private

@@ -5,15 +5,20 @@ describe 'JIT' do
     JIT.new(code).run
   end
 
-  it 'can set and get variables with an int' do
-    # TODO: how can we know what the return type is?
-    expect(run_jit('x = 1; x').to_i).must_equal 1
+  it 'can return an int' do
+    expect(run_jit('1')).must_equal 1
   end
 
-  it 'can set and get variables with a str' do
-    # TODO: how can we know what the return type is?
-    val = run_jit('x = "hello"; x').to_ptr.read_string
-    expect(val).must_equal 'hello'
+  it 'can return a str' do
+    expect(run_jit('"hello"')).must_equal 'hello'
+  end
+
+  it 'can set and get a variable with an int' do
+    expect(run_jit('x = 1; x')).must_equal 1
+  end
+
+  it 'can set and get a variable with a str' do
+    expect(run_jit('x = "hello"; x')).must_equal 'hello'
   end
 
   #it 'can define and call methods' do
