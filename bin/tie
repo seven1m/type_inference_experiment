@@ -9,4 +9,8 @@ code = if args.first == '-e'
          File.read(args.first)
        end
 
-p VM.new(code).run
+if ENV['JIT']
+  p JIT.new(code).run.to_s
+else
+  p VM.new(code).run
+end
