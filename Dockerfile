@@ -1,7 +1,7 @@
 FROM ubuntu:23.10
 
 RUN apt-get update && \
-    apt-get install -y -q build-essential ruby ruby-dev llvm-16-dev && \
+    apt-get install -y -q build-essential ruby ruby-dev llvm-16-dev git && \
     gem install bundler
 
 COPY Gemfile /tie/Gemfile
