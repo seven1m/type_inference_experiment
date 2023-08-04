@@ -21,13 +21,13 @@ describe 'JIT' do
     expect(run_jit('x = "hello"; x')).must_equal 'hello'
   end
 
-  #it 'can define and call methods' do
-    #code = <<~CODE
-      #def foo(x, y); x + 1; end
-      #foo(2, 100)
-    #CODE
-    #expect(run_vm(code)).must_equal 3
-  #end
+  it 'can define and call methods' do
+    code = <<~CODE
+      def foo(x); x + 1; end
+      foo(2)
+    CODE
+    expect(run_jit(code)).must_equal 3
+  end
 
   #it 'can branch with if' do
     #code = <<~CODE
